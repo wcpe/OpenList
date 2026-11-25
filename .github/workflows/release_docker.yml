@@ -41,6 +41,9 @@ jobs:
   build_binary:
     name: Build Binaries for Docker Release
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,18 +71,34 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_REPO: ${{ vars.FRONTEND_REPO }}
 
-      - name: Upload artifacts
-        uses: actions/cache/save@v4
-        with:
-          key: ${{ env.ARTIFACT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            build/
-            !build/*.tgz
-            !build/musl-libs/**
+      # draft release 产物通道：同 run 跨 job cache 实测不可靠。
+      # transport tag 属本 run 专属，cleanup 时连 tag 删除。
+      - name: 创建/复用 transport draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          T="transport-${{ github.run_id }}-${{ github.run_attempt }}"
+          gh release view "$T" >/dev/null 2>&1 || \
+            gh release create "$T" --draft --title transport --notes "docker build transport"
+      - name: 打包并上传产物到 transport draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -czf "${{ runner.temp }}/ARTIFACT_NAME.tar.gz" \
+            --exclude='build/*.tgz' --exclude='build/musl-libs' build/
+          gh release upload "transport-${{ github.run_id }}-${{ github.run_attempt }}" \
+            "${{ runner.temp }}/ARTIFACT_NAME.tar.gz" --clobber
 
   build_binary_lite:
     name: Build Binaries for Docker Release (Lite)
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -107,19 +126,35 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FRONTEND_REPO: ${{ vars.FRONTEND_REPO }}
 
-      - name: Upload artifacts
-        uses: actions/cache/save@v4
-        with:
-          key: ${{ env.ARTIFACT_NAME_LITE }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            build/
-            !build/*.tgz
-            !build/musl-libs/**
+      # draft release 产物通道：同 run 跨 job cache 实测不可靠。
+      # transport tag 属本 run 专属，cleanup 时连 tag 删除。
+      - name: 创建/复用 transport draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          T="transport-${{ github.run_id }}-${{ github.run_attempt }}"
+          gh release view "$T" >/dev/null 2>&1 || \
+            gh release create "$T" --draft --title transport --notes "docker build transport"
+      - name: 打包并上传产物到 transport draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -czf "${{ runner.temp }}/ARTIFACT_NAME_LITE.tar.gz" \
+            --exclude='build/*.tgz' --exclude='build/musl-libs' build/
+          gh release upload "transport-${{ github.run_id }}-${{ github.run_attempt }}" \
+            "${{ runner.temp }}/ARTIFACT_NAME_LITE.tar.gz" --clobber
 
   release_docker:
     needs: build_binary
     name: Release Docker image
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
     strategy:
       matrix:
         image: ["latest", "ffmpeg", "aria2", "aio"]
@@ -145,11 +180,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          key: ${{ env.ARTIFACT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: 'build/'
-          fail-on-cache-miss: true
+      - name: 下载产物包到 build/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "transport-${{ github.run_id }}-${{ github.run_attempt }}" \
+            -p 'ARTIFACT_NAME.tar.gz' -D "${{ runner.temp }}" --clobber
+          tar -xzf "${{ runner.temp }}/ARTIFACT_NAME.tar.gz"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -205,6 +244,9 @@ jobs:
     needs: build_binary_lite
     name: Release Docker image (Lite)
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
     strategy:
       matrix:
         image: ["latest", "ffmpeg", "aria2", "aio"]
@@ -230,11 +272,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
-        with:
-          key: ${{ env.ARTIFACT_NAME_LITE }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: 'build/'
-          fail-on-cache-miss: true
+      - name: 下载产物包到 build/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "transport-${{ github.run_id }}-${{ github.run_attempt }}" \
+            -p 'ARTIFACT_NAME_LITE.tar.gz' -D "${{ runner.temp }}" --clobber
+          tar -xzf "${{ runner.temp }}/ARTIFACT_NAME_LITE.tar.gz"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -285,3 +331,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: ${{ env.RELEASE_PLATFORMS }}
+
+  # ── 收尾：transport draft 与临时 tag 不残留 ──
+  cleanup-transport:
+    needs: [release_docker, release_docker_lite]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 删除 transport draft 及临时 tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          T="transport-${{ github.run_id }}-${{ github.run_attempt }}"
+          if gh release view "$T" --json isDraft --jq '.isDraft' 2>/dev/null | grep -q '^true$'; then
+            gh release delete "$T" -y --cleanup-tag
+            echo "已清理 transport draft $T"
+          fi
