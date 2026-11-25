@@ -69,10 +69,9 @@ jobs:
           FRONTEND_REPO: ${{ vars.FRONTEND_REPO }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          overwrite: true
+          key: ${{ env.ARTIFACT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             build/
             !build/*.tgz
@@ -109,10 +108,9 @@ jobs:
           FRONTEND_REPO: ${{ vars.FRONTEND_REPO }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: ${{ env.ARTIFACT_NAME_LITE }}
-          overwrite: true
+          key: ${{ env.ARTIFACT_NAME_LITE }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             build/
             !build/*.tgz
@@ -147,10 +145,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/cache/restore@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          key: ${{ env.ARTIFACT_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: 'build/'
+          fail-on-cache-miss: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -231,10 +230,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/cache/restore@v4
         with:
-          name: ${{ env.ARTIFACT_NAME_LITE }}
+          key: ${{ env.ARTIFACT_NAME_LITE }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: 'build/'
+          fail-on-cache-miss: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

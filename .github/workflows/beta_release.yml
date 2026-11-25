@@ -47,14 +47,6 @@ jobs:
           prerelease: true
           tag_name: beta
 
-      - name: Upload assets to github artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: beta changelog
-          path: ${{ github.workspace }}/CHANGELOG.md
-          compression-level: 0
-          if-no-files-found: error # 'warn' or 'ignore' are also available, defaults to `warn`
-
   release:
     needs:
       - changelog
@@ -133,11 +125,3 @@ jobs:
           echo "Original target: ${{ matrix.target }}"
           echo "Cleaned target: $CLEANED_TARGET"
           echo "cleaned_target=$CLEANED_TARGET" >> $GITHUB_ENV
-
-      - name: Upload assets to github artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: beta builds for ${{ env.cleaned_target }}
-          path: ${{ github.workspace }}/build/compress/*
-          compression-level: 0
-          if-no-files-found: error # 'warn' or 'ignore' are also available, defaults to `warn`
